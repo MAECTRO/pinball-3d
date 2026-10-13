@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Pinball 3D - Gilligan's Island (VK Games)</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕹️</text></svg>">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0a0c14;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #fff;
+    }
+
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      display: block;
+    }
+
+    /* UI HUD Overlay */
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 16px;
+    }
+
+    .hud-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      pointer-events: auto;
+    }
+
+    .dmd-box {
+      background: rgba(15, 23, 42, 0.85);
+      border: 2px solid #ff9900;
+      border-radius: 8px;
+      padding: 8px 14px;
+      box-shadow: 0 0 15px rgba(255, 153, 0, 0.35), inset 0 0 10px rgba(0, 0, 0, 0.8);
+      text-align: center;
+      min-width: 140px;
+    }
+
+    .dmd-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #ffb84d;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .dmd-value {
+      font-size: 24px;
+      font-weight: 900;
+      font-family: "Courier New", Courier, monospace;
+      color: #ffaa00;
+      text-shadow: 0 0 8px #ff6600, 0 0 16px #ff3300;
+      letter-spacing: 2px;
+    }
+
+    .hud-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn-icon {
+      pointer-events: auto;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #e2e8f0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn-icon:hover, .btn-icon:active {
+      background: rgba(255, 153, 0, 0.25);
+      border-color: #ff9900;
+      color: #ffb84d;
+    }
+
+    .active-toggle {
+      background: rgba(255, 153, 0, 0.4) !important;
+      border-color: #ff9900 !important;
+      color: #fff !important;
+    }
+
+    /* Plunger Meter */
+    .plunger-meter-container {
+      position: absolute;
+      right: 20px;
+      bottom: 120px;
+      width: 22px;
+      height: 180px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 2px solid #475569;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 2px;
+      pointer-events: auto;
+    }
+
+    .plunger-meter-bar {
+      width: 100%;
+      height: 0%;
+      background: linear-gradient(to top, #22c55e, #eab308, #ef4444);
+      border-radius: 8px;
+      transition: height 0.05s ease-out;
+    }
+
+    .plunger-meter-label {
+      position: absolute;
+      right: 48px;
+      bottom: 200px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+
+    /* Mobile Controls Overlay */
+    .touch-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      width: 100%;
+      height: 40%;
+      pointer-events: none;
+    }
+
+    .touch-btn {
+      pointer-events: auto;
+      background: rgba(255, 255, 255, 0.08);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 16px;
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(6px);
+      touch-action: none;
+      transition: background 0.1s, transform 0.05s;
+    }
+
+    .touch-btn:active, .touch-btn.pressed {
+      background: rgba(255, 153, 0, 0.35);
+      border-color: #ffaa00;
+      transform: scale(0.97);
+    }
+
+    .touch-btn-flipper {
+      width: 32%;
+      max-width: 150px;
+      height: 100px;
+      margin-bottom: 10px;
+    }
+
+    .touch-btn-plunger {
+      width: 25%;
+      max-width: 110px;
+      height: 80px;
+      margin-bottom: 10px;
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    .touch-btn-plunger:active, .touch-btn-plunger.pressed {
+      background: rgba(239, 68, 68, 0.55);
+      border-color: #f87171;
+    }
+
+    /* Ball remaining dots */
+    .balls-count {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin-top: 4px;
+    }
+
+    .ball-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #475569;
+    }
+
+    .ball-dot.active {
+      background: #f1f5f9;
+      box-shadow: 0 0 6px #fff;
+    }
+
+    /* Bumper Hit Toast Notification */
+    #score-popups {
+      position: absolute;
+      top: 35%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    .score-popup {
+      font-size: 28px;
+      font-weight: 900;
+      color: #fde047;
+      text-shadow: 0 0 10px #f59e0b, 0 0 20px #b45309;
+      animation: floatUp 0.7s ease-out forwards;
+      pointer-events: none;
+      text-align: center;
+    }
+
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0) scale(0.8); }
+      50% { opacity: 1; transform: translateY(-30px) scale(1.2); }
+      100% { opacity: 0; transform: translateY(-60px) scale(1); }
+    }
+
+    /* Loading overlay */
+    #loading-screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #090d16;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.4s ease;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255, 153, 0, 0.2);
+      border-top-color: #ff9900;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #e2e8f0;
+      margin-bottom: 8px;
+    }
+
+    .loading-subtext {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+
+    /* Game Over Modal */
+    #gameover-modal {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: #111827;
+      border: 2px solid #ff9900;
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 153, 0, 0.3);
+    }
+
+    .modal-title {
+      font-size: 28px;
+      font-weight: 900;
+      color: #f87171;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 12px;
+    }
+
+    .modal-score {
+      font-size: 36px;
+      font-weight: 900;
+      color: #fbbf24;
+      margin: 10px 0 20px 0;
+      font-family: "Courier New", Courier, monospace;
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      margin-bottom: 12px;
+      box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
+      transition: transform 0.1s, filter 0.1s;
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+      filter: brightness(0.9);
+    }
+
+    .btn-rewarded {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #10b981;
+      border-radius: 10px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-rewarded:hover, .btn-rewarded:active {
+      background: rgba(16, 185, 129, 0.3);
+    }
+
+    .instructions-hint {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Loading Screen -->
+  <div id="loading-screen">
+    <div class="spinner"></div>
+    <div class="loading-text">ЗАГРУЗКА ПИНБОЛА</div>
+    <div class="loading-subtext" id="loading-status">Инициализация физики Rapier3D и 3D-модели стола...</div>
+  </div>
+
+  <!-- UI HUD -->
+  <div id="ui-layer">
+    <div class="hud-top">
+      <div class="dmd-box">
+        <div class="dmd-label">СЧЕТ</div>
+        <div class="dmd-value" id="ui-score">000000</div>
+      </div>
+
+      <div class="hud-actions">
+        <button class="btn-icon" id="btn-camera" title="Сменить вид камеры">Камера</button>
+        <button class="btn-icon" id="btn-respawn" title="Респавн шарика (R)">Респавн (R)</button>
+        <button class="btn-icon" id="btn-debug" title="Физические коллайдеры (F1)">Дебаг (F1)</button>
+      </div>
+
+      <div class="dmd-box">
+        <div class="dmd-label">ШАРЫ</div>
+        <div class="balls-count" id="ui-balls">
+          <div class="ball-dot active"></div>
+          <div class="ball-dot active"></div>
+          <div class="ball-dot active"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Score Popups -->
+    <div id="score-popups"></div>
+
+    <!-- Plunger Meter -->
+    <div class="plunger-meter-label">Плунжер [Пробел]</div>
+    <div class="plunger-meter-container">
+      <div class="plunger-meter-bar" id="ui-plunger-bar"></div>
+    </div>
+
+    <!-- Mobile Touch Controls -->
+    <div class="touch-controls">
+      <button class="touch-btn touch-btn-flipper" id="touch-flipper-left">◄ ЛЕВЫЙ</button>
+      <button class="touch-btn touch-btn-plunger" id="touch-plunger">ПУСК</button>
+      <button class="touch-btn touch-btn-flipper" id="touch-flipper-right">ПРАВЫЙ ►</button>
+    </div>
+
+    <div class="instructions-hint">
+      Флипперы: [A] / [D] или Стрелки • Запуск: [Пробел] • Сброс: [R] • Коллайдеры: [F1]
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div id="gameover-modal">
+    <div class="modal-card">
+      <div class="modal-title">ИГРА ОКОНЧЕНА</div>
+      <div style="font-size: 13px; color: #94a3b8;">ВАШ СЧЕТ:</div>
+      <div class="modal-score" id="gameover-score">0</div>
+      <div style="font-size: 12px; color: #64748b; margin-bottom: 16px;" id="gameover-best">РЕКОРД: 0</div>
+      <button class="btn-primary" id="btn-restart">ИГРАТЬ СНОВА</button>
+      <button class="btn-rewarded" id="btn-ad-revive">▶ +1 ШАР ЗА РЕКЛАМУ</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
