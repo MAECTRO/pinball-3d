@@ -24,8 +24,12 @@ export class PhysicsManager {
     this.rightFlipperMesh = null;
     this.rightFlipperSubMesh = null;
 
-    this.leftPivot = new THREE.Vector3(-2.14, -0.64, 13.19);
-    this.rightPivot = new THREE.Vector3(1.40, -0.63, 13.22);
+    this.leftPivot = new THREE.Vector3(-2.14, -0.60, 13.19);
+    this.rightPivot = new THREE.Vector3(1.40, -0.60, 13.22);
+
+    this.flipperLength = 1.48;
+    this.baseAngleLeft = -0.547;
+    this.baseAngleRight = -2.600;
 
     this.leftAngle = 0;
     this.rightAngle = 0;
@@ -33,6 +37,9 @@ export class PhysicsManager {
 
     this.leftBaseQuat = new THREE.Quaternion();
     this.rightBaseQuat = new THREE.Quaternion();
+
+    this.isDraining = false;
+    this.stuckTimer = 0;
 
     // Plunger / Shooter
     this.plungerMesh = null;
@@ -71,8 +78,8 @@ export class PhysicsManager {
 
   async init() {
     await RAPIER.init();
-    // Gravity tilted down towards playfield surface (-Y) and towards flippers/drain (+Z)
-    const gravity = { x: 0.0, y: -26.0, z: 9.5 };
+    // Comfortable arcade gravity slope: -Y downward force and +Z slope towards flippers
+    const gravity = { x: 0.0, y: -22.0, z: 7.2 };
     this.world = new RAPIER.World(gravity);
     this.eventQueue = new RAPIER.EventQueue(true);
 
@@ -110,6 +117,13 @@ export class PhysicsManager {
   }
 
   setupInvisibleBoundaries() {
+    // 0. Perfectly Flat Solid Playfield Floor (prevents ball snagging/tunneling in 3D trimesh polygon seams)
+    const playfieldFloor = RAPIER.ColliderDesc.cuboid(5.5, 0.1, 12.5)
+      .setTranslation(0.0, -0.88, 4.5)
+      .setRestitution(0.2)
+      .setFriction(0.04);
+    this.world.createCollider(playfieldFloor, this.staticBody);
+
     // 1. Invisible Glass Ceiling (keeps ball firmly on table even after huge bounces)
     const glassDesc = RAPIER.ColliderDesc.cuboid(7.0, 0.1, 15.0)
       .setTranslation(0.0, 0.6, 4.0)
@@ -236,37 +250,70 @@ export class PhysicsManager {
     leftMesh.getWorldPosition(this.leftPivot);
     rightMesh.getWorldPosition(this.rightPivot);
 
-    // Store base orientations
+    // Adjust Y pivot height to match the ball center height on playfield (-0.62)
+    this.leftPivot.y = -0.62;
+    this.rightPivot.y = -0.62;
+
+    // Store base orientations from 3D model
     this.leftBaseQuat.copy(leftMesh.quaternion);
     this.rightBaseQuat.copy(rightMesh.quaternion);
 
-    // Left Flipper Body
+    const upAxis = new THREE.Vector3(0, 1, 0);
+
+    // 1. Left Flipper Body (Kinematic with CCD enabled per ТЗ)
+    const leftRot = new THREE.Quaternion().setFromAxisAngle(upAxis, this.baseAngleLeft);
     const leftBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(this.leftPivot.x, this.leftPivot.y, this.leftPivot.z)
-      .setRotation(this.leftBaseQuat);
+      .setRotation(leftRot)
+      .setCcdEnabled(true);
     this.leftFlipperBody = this.world.createRigidBody(leftBodyDesc);
 
-    // Left Flipper Collider - rounded tapered cuboid extending along flipper arm
-    const leftColDesc = RAPIER.ColliderDesc.cuboid(0.95, 0.35, 0.22)
-      .setTranslation(0.85, 0.0, 0.28)
-      .setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.35))
-      .setRestitution(0.75)
-      .setFriction(0.25);
+    // Volumetric colliders: height Y 0.60 (hy 0.30, spanning -0.92 to -0.32), length 1.48 (hx 0.74), thickness 0.36 (hz 0.18)
+    const leftColDesc = RAPIER.ColliderDesc.cuboid(0.74, 0.30, 0.18)
+      .setTranslation(0.74, 0.0, 0.0)
+      .setRestitution(0.65)
+      .setFriction(0.2)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
     this.world.createCollider(leftColDesc, this.leftFlipperBody);
 
-    // Right Flipper Body
+    const leftPivotCol = RAPIER.ColliderDesc.cylinder(0.30, 0.22)
+      .setTranslation(0.0, 0.0, 0.0)
+      .setRestitution(0.65)
+      .setFriction(0.2);
+    this.world.createCollider(leftPivotCol, this.leftFlipperBody);
+
+    const leftTipCol = RAPIER.ColliderDesc.cylinder(0.30, 0.16)
+      .setTranslation(1.48, 0.0, 0.0)
+      .setRestitution(0.65)
+      .setFriction(0.2);
+    this.world.createCollider(leftTipCol, this.leftFlipperBody);
+
+    // 2. Right Flipper Body (Kinematic with CCD enabled per ТЗ)
+    const rightRot = new THREE.Quaternion().setFromAxisAngle(upAxis, this.baseAngleRight);
     const rightBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(this.rightPivot.x, this.rightPivot.y, this.rightPivot.z)
-      .setRotation(this.rightBaseQuat);
+      .setRotation(rightRot)
+      .setCcdEnabled(true);
     this.rightFlipperBody = this.world.createRigidBody(rightBodyDesc);
 
-    // Right Flipper Collider
-    const rightColDesc = RAPIER.ColliderDesc.cuboid(0.95, 0.35, 0.22)
-      .setTranslation(-0.85, 0.0, 0.28)
-      .setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.35))
-      .setRestitution(0.75)
-      .setFriction(0.25);
+    const rightColDesc = RAPIER.ColliderDesc.cuboid(0.74, 0.30, 0.18)
+      .setTranslation(0.74, 0.0, 0.0)
+      .setRestitution(0.65)
+      .setFriction(0.2)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
     this.world.createCollider(rightColDesc, this.rightFlipperBody);
+
+    const rightPivotCol = RAPIER.ColliderDesc.cylinder(0.30, 0.22)
+      .setTranslation(0.0, 0.0, 0.0)
+      .setRestitution(0.65)
+      .setFriction(0.2);
+    this.world.createCollider(rightPivotCol, this.rightFlipperBody);
+
+    const rightTipCol = RAPIER.ColliderDesc.cylinder(0.30, 0.16)
+      .setTranslation(1.48, 0.0, 0.0)
+      .setRestitution(0.65)
+      .setFriction(0.2);
+    this.world.createCollider(rightTipCol, this.rightFlipperBody);
   }
 
   setupPlunger(mesh) {
@@ -348,18 +395,19 @@ export class PhysicsManager {
     this.scene.add(this.ballMesh);
 
     // 2. Rapier RigidBody with CCD enabled (Mandatory per ТЗ)
+    // Damping tuned for comfortable arcade pinball dynamics
     const spawnPos = { x: 4.75, y: -0.65, z: 15.6 };
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(spawnPos.x, spawnPos.y, spawnPos.z)
       .setCcdEnabled(true)
-      .setLinearDamping(0.08)
-      .setAngularDamping(0.12);
+      .setLinearDamping(0.22)
+      .setAngularDamping(0.30);
 
     this.ballBody = this.world.createRigidBody(bodyDesc);
 
     const colliderDesc = RAPIER.ColliderDesc.ball(this.ballRadius)
-      .setRestitution(0.5)
-      .setFriction(0.05)
+      .setRestitution(0.45)
+      .setFriction(0.06)
       .setDensity(2.5)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
@@ -369,6 +417,8 @@ export class PhysicsManager {
 
   spawnBall(pos = { x: 4.75, y: -0.65, z: 15.6 }) {
     if (!this.ballBody) return;
+    this.isDraining = false;
+    this.stuckTimer = 0;
     this.ballBody.setTranslation(pos, true);
     this.ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -406,15 +456,16 @@ export class PhysicsManager {
     const t = this.ballBody.translation();
     // Only launch if ball is in the shooter lane
     if (t.x > 4.2 && t.z > 10.0) {
-      // Transfer sharp impulse via applyImpulse along -Z as required by ТЗ
-      const impulse = 3.6 + Math.max(0.2, powerRatio) * 6.8;
-      this.ballBody.applyImpulse({ x: 0.0, y: 0.35, z: -impulse }, true);
+      // Smooth arcade launch velocity along -Z (12.0 to 17.0 m/s)
+      const launchSpeed = 12.0 + Math.max(0.1, powerRatio) * 5.0;
+      this.ballBody.setLinvel({ x: 0.0, y: 0.4, z: -launchSpeed }, true);
       sounds.playPlungerLaunch();
     }
   }
 
   updateFlippers(leftPressed, rightPressed, dt) {
-    const speed = 25.0; // Fast snap response
+    const speed = 28.0; // Fast crisp snap response
+    const safeDt = Math.max(0.001, dt);
 
     // Left flipper target angle
     const targetLeft = leftPressed ? this.maxFlipperAngle : 0.0;
@@ -440,28 +491,88 @@ export class PhysicsManager {
 
     const upAxis = new THREE.Vector3(0, 1, 0);
 
-    // Left rotation (positive angle around world Y)
+    // 1. Left Flipper Rotations
+    const curLeftAngle = this.baseAngleLeft + this.leftAngle;
+    const lBodyRot = new THREE.Quaternion().setFromAxisAngle(upAxis, curLeftAngle);
+    if (this.leftFlipperBody) {
+      this.leftFlipperBody.setNextKinematicRotation(lBodyRot);
+    }
+
     const lQuat = this.leftBaseQuat.clone();
     const lRot = new THREE.Quaternion().setFromAxisAngle(upAxis, this.leftAngle);
     lQuat.premultiply(lRot);
-
     if (this.leftFlipperMesh) {
       this.leftFlipperMesh.quaternion.copy(lQuat);
     }
-    if (this.leftFlipperBody) {
-      this.leftFlipperBody.setNextKinematicRotation(lQuat);
+
+    // 2. Right Flipper Rotations
+    const curRightAngle = this.baseAngleRight - this.rightAngle;
+    const rBodyRot = new THREE.Quaternion().setFromAxisAngle(upAxis, curRightAngle);
+    if (this.rightFlipperBody) {
+      this.rightFlipperBody.setNextKinematicRotation(rBodyRot);
     }
 
-    // Right rotation (negative angle around world Y)
     const rQuat = this.rightBaseQuat.clone();
     const rRot = new THREE.Quaternion().setFromAxisAngle(upAxis, -this.rightAngle);
     rQuat.premultiply(rRot);
-
     if (this.rightFlipperMesh) {
       this.rightFlipperMesh.quaternion.copy(rQuat);
     }
-    if (this.rightFlipperBody) {
-      this.rightFlipperBody.setNextKinematicRotation(rQuat);
+
+    // 3. Dynamic flipper stroke impulse transfer to ball (Requirement 2 per ТЗ)
+    const leftAngularVel = (this.leftAngle - prevLeft) / safeDt;
+    const rightAngularVel = (this.rightAngle - prevRight) / safeDt;
+
+    if (this.ballBody && leftAngularVel > 1.5) {
+      const bPos = this.ballBody.translation();
+      const p = this.leftPivot;
+      const angle = this.baseAngleLeft + this.leftAngle;
+      const ux = Math.cos(angle);
+      const uz = -Math.sin(angle);
+      const vx = bPos.x - p.x;
+      const vz = bPos.z - p.z;
+      const s = vx * ux + vz * uz;
+      if (s >= -0.2 && s <= this.flipperLength + 0.25 && Math.abs(bPos.y - p.y) < 0.85) {
+        const nx = uz;
+        const nz = -ux;
+        const dPerp = vx * nx + vz * nz;
+        if (Math.abs(dPerp) < this.ballRadius + 0.50) {
+          const armRatio = Math.max(0.2, Math.min(1.0, s / this.flipperLength));
+          const hitSpeed = 11.0 + armRatio * 13.0;
+          this.ballBody.setLinvel({
+            x: nx * hitSpeed + (Math.random() - 0.5) * 1.5,
+            y: 0.8,
+            z: nz * hitSpeed
+          }, true);
+          sounds.playBumperHit(450);
+        }
+      }
+    }
+
+    if (this.ballBody && rightAngularVel > 1.5) {
+      const bPos = this.ballBody.translation();
+      const p = this.rightPivot;
+      const angle = this.baseAngleRight - this.rightAngle;
+      const ux = Math.cos(angle);
+      const uz = -Math.sin(angle);
+      const vx = bPos.x - p.x;
+      const vz = bPos.z - p.z;
+      const s = vx * ux + vz * uz;
+      if (s >= -0.2 && s <= this.flipperLength + 0.25 && Math.abs(bPos.y - p.y) < 0.85) {
+        const nx = -uz;
+        const nz = ux;
+        const dPerp = vx * nx + vz * nz;
+        if (Math.abs(dPerp) < this.ballRadius + 0.50) {
+          const armRatio = Math.max(0.2, Math.min(1.0, s / this.flipperLength));
+          const hitSpeed = 11.0 + armRatio * 13.0;
+          this.ballBody.setLinvel({
+            x: nx * hitSpeed + (Math.random() - 0.5) * 1.5,
+            y: 0.8,
+            z: nz * hitSpeed
+          }, true);
+          sounds.playBumperHit(450);
+        }
+      }
     }
   }
 
@@ -475,11 +586,11 @@ export class PhysicsManager {
     const dx = bPos.x - bumper.x;
     const dz = bPos.z - bumper.z;
     const angle = Math.atan2(dz, dx);
-    const impulseMag = 7.5;
+    const impulseMag = 4.8;
     const ix = Math.cos(angle) * impulseMag;
     const iz = Math.sin(angle) * impulseMag;
 
-    this.ballBody.applyImpulse({ x: ix, y: 1.2, z: iz }, true);
+    this.ballBody.applyImpulse({ x: ix, y: 0.8, z: iz }, true);
     sounds.playBumperHit(700 + (idx !== -1 ? idx : 0) * 150);
 
     if (this.onBumperHit) this.onBumperHit(bumper);
@@ -491,9 +602,9 @@ export class PhysicsManager {
     this.slingshotCooldowns[slingshot.id] = 0.2;
 
     if (!this.ballBody) return;
-    const ix = slingshot.kickDir.x * 6.5;
-    const iz = slingshot.kickDir.z * 6.5;
-    this.ballBody.applyImpulse({ x: ix, y: 1.0, z: iz }, true);
+    const ix = slingshot.kickDir.x * 4.2;
+    const iz = slingshot.kickDir.z * 4.2;
+    this.ballBody.applyImpulse({ x: ix, y: 0.7, z: iz }, true);
 
     sounds.playSlingshot();
     if (this.onScore) this.onScore(slingshot.pts, slingshot.name, { x: slingshot.x, y: slingshot.y + 0.5, z: slingshot.z });
@@ -504,9 +615,9 @@ export class PhysicsManager {
     this.kickerCooldown = 0.4;
 
     if (!this.ballBody) return;
-    const ix = kicker.kickDir.x * 7.5;
-    const iz = kicker.kickDir.z * 7.5;
-    this.ballBody.applyImpulse({ x: ix, y: 1.5, z: iz }, true);
+    const ix = kicker.kickDir.x * 5.2;
+    const iz = kicker.kickDir.z * 5.2;
+    this.ballBody.applyImpulse({ x: ix, y: 1.0, z: iz }, true);
 
     sounds.playBumperHit(1000);
     if (this.onScore) this.onScore(kicker.pts, kicker.name, { x: kicker.x, y: kicker.y + 0.5, z: kicker.z });
@@ -536,6 +647,19 @@ export class PhysicsManager {
     });
   }
 
+  nudgeBall(manual = true) {
+    if (!this.ballBody || this.isDraining) return;
+    const bPos = this.ballBody.translation();
+    // Do not nudge when ball is still waiting in the plunger lane
+    if (bPos.x > 4.2 && bPos.z > 10.0) return;
+
+    const power = manual ? 3.2 : 2.4;
+    const randX = (Math.random() - 0.5) * power;
+    const randZ = -1.0 - Math.random() * (power * 0.8);
+    this.ballBody.applyImpulse({ x: randX, y: 0.8, z: randZ }, true);
+    sounds.playSlingshot();
+  }
+
   checkInteractiveCollisions(dt) {
     if (!this.ballBody) return;
 
@@ -551,6 +675,19 @@ export class PhysicsManager {
     this.drainRapierCollisionEvents();
 
     const bPos = this.ballBody.translation();
+    const vel = this.ballBody.linvel();
+    const speed = Math.hypot(vel.x, vel.y, vel.z);
+
+    // Anti-stuck nudge detection: if ball sits stationary on playfield for > 1.8s
+    if (!this.isDraining && bPos.z < 13.5 && bPos.z > -6.5 && bPos.x < 4.1 && bPos.x > -4.8 && speed < 0.22) {
+      this.stuckTimer += dt;
+      if (this.stuckTimer > 1.8) {
+        this.nudgeBall(false);
+        this.stuckTimer = 0;
+      }
+    } else {
+      this.stuckTimer = 0;
+    }
 
     // Fallback proximity trigger for high velocity tunneling defense
     for (let i = 0; i < this.bumpers.length; i++) {
@@ -570,15 +707,19 @@ export class PhysicsManager {
       }
     }
 
-    // Drain Check: ball fell below flippers into drain
-    if (bPos.z > 14.8 && bPos.x > -2.4 && bPos.x < 2.4 && bPos.y < -0.4) {
-      if (this.onDrain) {
-        this.onDrain();
-      }
-    } else if (bPos.y < -3.0 || bPos.z > 22.0) {
-      // Failsafe drain if ball fell out of bounds
-      if (this.onDrain) {
-        this.onDrain();
+    // Drain Check: ball fell below flippers into drain (guarded to avoid duplicate triggers)
+    if (!this.isDraining) {
+      if (bPos.z > 14.8 && bPos.x > -2.4 && bPos.x < 2.4 && bPos.y < -0.4) {
+        this.isDraining = true;
+        if (this.onDrain) {
+          this.onDrain();
+        }
+      } else if (bPos.y < -2.5 || bPos.z > 20.0) {
+        // Failsafe drain if ball fell out of bounds
+        this.isDraining = true;
+        if (this.onDrain) {
+          this.onDrain();
+        }
       }
     }
   }
@@ -590,6 +731,18 @@ export class PhysicsManager {
     this.updatePlunger(dt, isPlungerCharging, plungerPower);
 
     this.world.step(this.eventQueue);
+
+    // Velocity Clamping: limit maximum ball velocity for smooth, controllable arcade gameplay
+    if (this.ballBody) {
+      const vel = this.ballBody.linvel();
+      const speed = Math.hypot(vel.x, vel.y, vel.z);
+      const maxSpeed = 19.5;
+      if (speed > maxSpeed) {
+        const factor = maxSpeed / speed;
+        this.ballBody.setLinvel({ x: vel.x * factor, y: vel.y * factor, z: vel.z * factor }, true);
+      }
+    }
+
     this.syncBallMesh();
     this.checkInteractiveCollisions(dt);
 

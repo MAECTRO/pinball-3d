@@ -47,6 +47,7 @@ export class GameManager {
     this.btnDebug = document.getElementById('btn-debug');
     this.btnCamera = document.getElementById('btn-camera');
     this.btnRespawn = document.getElementById('btn-respawn');
+    this.btnNudge = document.getElementById('btn-nudge');
 
     this.touchLeft = document.getElementById('touch-flipper-left');
     this.touchRight = document.getElementById('touch-flipper-right');
@@ -241,9 +242,18 @@ export class GameManager {
       if (code === 'KeyD' || key === 'd' || key === 'в' || code === 'ArrowRight' || code === 'ShiftRight') {
         this.rightPressed = true;
       }
+      if (code === 'KeyW' || key === 'w' || key === 'ц' || code === 'KeyN' || key === 'n' || key === 'т') {
+        this.physics.nudgeBall(true);
+      }
       if (code === 'Space' || code === 'ArrowDown' || key === ' ') {
         e.preventDefault();
-        if (!e.repeat) this.isPlungerCharging = true;
+        const bPos = this.physics.ballBody ? this.physics.ballBody.translation() : null;
+        const inShooterLane = bPos && bPos.x > 4.2 && bPos.z > 10.0;
+        if (inShooterLane) {
+          if (!e.repeat) this.isPlungerCharging = true;
+        } else {
+          if (!e.repeat) this.physics.nudgeBall(true);
+        }
       }
       if (code === 'KeyR' || key === 'r' || key === 'к') {
         this.physics.spawnBall();
@@ -359,6 +369,12 @@ export class GameManager {
     if (this.btnRespawn) {
       this.btnRespawn.addEventListener('click', () => {
         this.physics.spawnBall();
+      });
+    }
+
+    if (this.btnNudge) {
+      this.btnNudge.addEventListener('click', () => {
+        this.physics.nudgeBall(true);
       });
     }
 

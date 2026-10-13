@@ -39,15 +39,18 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = 1.65;
 container.appendChild(renderer.domElement);
 
-// Lighting setup: Ambient + Directional Key Light + Back Fill Light
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
+// Rich, juicy lighting setup: HemisphereLight + Ambient + Key Light + Fill Light + Table Glow
+const hemiLight = new THREE.HemisphereLight(0xfff6ea, 0x446688, 1.6);
+scene.add(hemiLight);
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.25);
 scene.add(ambientLight);
 
-const keyLight = new THREE.DirectionalLight(0xfff6ea, 2.0);
-keyLight.position.set(15, 50, 25);
+const keyLight = new THREE.DirectionalLight(0xfffaf0, 2.5);
+keyLight.position.set(10, 45, 18);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.width = 2048;
 keyLight.shadow.mapSize.height = 2048;
@@ -61,9 +64,14 @@ keyLight.shadow.camera.bottom = -d;
 keyLight.shadow.bias = -0.0004;
 scene.add(keyLight);
 
-const backLight = new THREE.DirectionalLight(0x90b0ff, 0.8);
-backLight.position.set(-15, 30, -30);
+const backLight = new THREE.DirectionalLight(0x90c0ff, 1.3);
+backLight.position.set(-15, 30, -20);
 scene.add(backLight);
+
+// Dedicated overhead table light to illuminate the playfield artwork brilliantly
+const playfieldLight = new THREE.PointLight(0xffeedd, 2.2, 35);
+playfieldLight.position.set(0, 10, 5);
+scene.add(playfieldLight);
 
 // Handle window resizing
 window.addEventListener('resize', () => {

@@ -197,15 +197,30 @@ export class TableLoader {
 
     const isGlass = meshName.toLowerCase().includes('glass') || meshName.toLowerCase().includes('cover');
     const isMetal = meshName.toLowerCase().includes('metal') || meshName.toLowerCase().includes('wire') || meshName.toLowerCase().includes('screw') || meshName.toLowerCase().includes('rail');
+    const isPlayfield = meshName.toLowerCase().includes('playfield');
+
+    // Only use texture map if FBXLoader actually loaded a real image (avoid white dummy placeholders)
+    const hasValidMap = Boolean(oldMat.map && oldMat.map.image && (oldMat.map.image.width || oldMat.map.image.complete));
+
+    let baseColor = new THREE.Color(0xffffff);
+    if (isPlayfield && !hasValidMap) {
+      // Warm polished tournament pinball wood with lacquer clearcoat
+      baseColor = new THREE.Color(0xd8a972);
+    } else if (!hasValidMap && oldMat.color) {
+      baseColor = oldMat.color.clone();
+      if (baseColor.r < 0.25 && baseColor.g < 0.25 && baseColor.b < 0.25) {
+        baseColor.offsetHSL(0, 0, 0.3);
+      }
+    }
 
     const standardMat = new THREE.MeshStandardMaterial({
       name: oldMat.name || 'StandardMat',
-      color: oldMat.color ? oldMat.color.clone() : new THREE.Color(0xffffff),
-      map: oldMat.map || null,
+      color: baseColor,
+      map: hasValidMap ? oldMat.map : null,
       normalMap: oldMat.normalMap || null,
       bumpMap: oldMat.bumpMap || null,
-      roughness: isMetal ? 0.2 : (isGlass ? 0.1 : 0.4),
-      metalness: isMetal ? 0.85 : 0.15,
+      roughness: isMetal ? 0.2 : (isGlass ? 0.08 : (isPlayfield ? 0.18 : 0.35)),
+      metalness: isMetal ? 0.85 : (isPlayfield ? 0.08 : 0.05),
       transparent: isGlass || oldMat.transparent || (oldMat.opacity < 1.0),
       opacity: isGlass ? 0.25 : (oldMat.opacity !== undefined ? oldMat.opacity : 1.0),
       side: THREE.DoubleSide
